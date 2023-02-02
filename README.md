@@ -13,7 +13,7 @@ Other uses cases can be more easily achieved using the standard tools at the mom
 ```
 go install github.com/mattpgray/coveragecollector@latest
 $(go env GOPATH)/bin/coveragecollector -total <coverage file> # Output the total coverage
-$(go env GOPATH)/bin/coveragecollector -packages <coverage file> # Output the tcoverage for each package
+$(go env GOPATH)/bin/coveragecollector -packages <coverage file> # Output the coverage for each package
 ```
 
 ## TODO
