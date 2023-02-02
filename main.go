@@ -10,6 +10,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,6 +49,23 @@ func (c *CoverageCollector) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c *CoverageCollector) Coverage() float64 {
+	totalStmts := 0
+	totalCoveredStmts := 0
+	packages := c.CollectPackages()
+	for _, p := range packages {
+		for _, f := range p.Files {
+			for _, b := range f.UniqueBlocks() {
+				totalStmts += b.NumStmt
+				if b.Count > 0 {
+					totalCoveredStmts += b.NumStmt
+				}
+			}
+		}
+	}
+	return float64(totalCoveredStmts) / float64(totalStmts)
 }
 
 type PackageCoverage struct {
@@ -144,9 +162,17 @@ func (c *CoverageCollector) CollectPackages() []*PackageCoverage {
 }
 
 func main() {
+	total := flag.Bool("total", false, "Output total")
+	outputPackages := flag.Bool("packages", false, "Output packages")
+	flag.Parse()
+
+	if *total && *outputPackages ||
+		!*total && !*outputPackages {
+		reportErr("must supply exactly one of -total or -packages")
+	}
 
 	files := [][]*cover.Profile{}
-	for _, a := range os.Args[1:] {
+	for _, a := range flag.Args() {
 		profiles, err := cover.ParseProfiles(a)
 		if err != nil {
 			reportErr(err)
@@ -159,20 +185,25 @@ func main() {
 		reportErr(err)
 	}
 
-	packages := c.CollectPackages()
-	maxWidth := 0
-	for _, p := range packages {
-		if len(p.Package) > maxWidth {
-			maxWidth = len(p.Package)
+	switch {
+	case *total:
+		fmt.Printf("total: coverage (%.1f)%%\n", 100.0*c.Coverage())
+	case *outputPackages:
+		packages := c.CollectPackages()
+		maxWidth := 0
+		for _, p := range packages {
+			if len(p.Package) > maxWidth {
+				maxWidth = len(p.Package)
+			}
 		}
-	}
-	for _, p := range packages {
-		padding := strings.Repeat(" ", maxWidth-len(p.Package)+1)
-		fmt.Printf("%s%scoverage (%.1f)%%\n", p.Package, padding, 100.0*p.Coverage())
+		for _, p := range packages {
+			padding := strings.Repeat(" ", maxWidth-len(p.Package)+1)
+			fmt.Printf("%s:%scoverage (%.1f)%%\n", p.Package, padding, 100.0*p.Coverage())
+		}
 	}
 }
 
-func reportErr(err error) {
+func reportErr(err any) {
 	fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 	os.Exit(1)
 }
