@@ -52,34 +52,84 @@ func (c *CoverageCollector) Validate() error {
 
 type PackageCoverage struct {
 	Package string
-	Blocks  []cover.ProfileBlock
+	Files   []FileCoverage
+}
+
+type FileCoverage struct {
+	FileName string
+	// Can contain repeats but in the original order
+	Blocks []cover.ProfileBlock
+}
+
+func (fc *FileCoverage) UniqueBlocks() []cover.ProfileBlock {
+	type key struct {
+		startLine, startCol int
+	}
+	unique := map[key]*cover.ProfileBlock{}
+	for _, b := range fc.Blocks {
+		k := key{startLine: b.StartLine, startCol: b.StartCol}
+		if bb, ok := unique[k]; !ok {
+			b2 := b
+			unique[k] = &b2
+		} else {
+			bb.Count += b.Count
+		}
+	}
+
+	uniqueBlocks := make([]cover.ProfileBlock, len(unique))
+	for _, b := range unique {
+		uniqueBlocks = append(uniqueBlocks, *b)
+	}
+
+	sort.Slice(uniqueBlocks, func(i, j int) bool {
+		if uniqueBlocks[i].StartLine != uniqueBlocks[j].StartLine {
+			return uniqueBlocks[i].StartLine < uniqueBlocks[j].StartLine
+		}
+		return uniqueBlocks[i].StartCol < uniqueBlocks[j].StartCol
+	})
+	return uniqueBlocks
 }
 
 func (p *PackageCoverage) Coverage() float64 {
 	totalStmts := 0
 	totalCoveredStmts := 0
-	for _, b := range p.Blocks {
-		totalStmts += b.NumStmt
-		if b.Count > 0 {
-			totalCoveredStmts += b.NumStmt
+	for _, f := range p.Files {
+		for _, b := range f.UniqueBlocks() {
+			totalStmts += b.NumStmt
+			if b.Count > 0 {
+				totalCoveredStmts += b.NumStmt
+			}
 		}
 	}
-
 	return float64(totalCoveredStmts) / float64(totalStmts)
 }
 
 func (c *CoverageCollector) CollectPackages() []*PackageCoverage {
 	packages := map[string]*PackageCoverage{}
 	for _, f := range c.files {
+	Loop:
 		for _, p := range f {
 			pkg := filepath.Dir(p.FileName)
 			if pCov, ok := packages[pkg]; !ok {
 				packages[pkg] = &PackageCoverage{
 					Package: pkg,
-					Blocks:  p.Blocks,
+					Files: []FileCoverage{{
+						FileName: p.FileName,
+						Blocks:   p.Blocks,
+					}},
 				}
 			} else {
-				pCov.Blocks = append(pCov.Blocks, p.Blocks...)
+				for i, ff := range pCov.Files {
+					if ff.FileName == p.FileName {
+						pCov.Files[i].Blocks = append(pCov.Files[i].Blocks, p.Blocks...)
+						continue Loop
+					}
+				}
+				pCov.Files = append(pCov.Files, FileCoverage{
+					FileName: p.FileName,
+					Blocks:   p.Blocks,
+				})
+				sort.Slice(pCov.Files, func(i, j int) bool { return pCov.Files[i].FileName < pCov.Files[j].FileName })
 			}
 		}
 	}
@@ -94,6 +144,7 @@ func (c *CoverageCollector) CollectPackages() []*PackageCoverage {
 }
 
 func main() {
+
 	files := [][]*cover.Profile{}
 	for _, a := range os.Args[1:] {
 		profiles, err := cover.ParseProfiles(a)
